@@ -1,0 +1,331 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('connect4:server');
+var http = require('http');
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+/**
+ * Socket.io parts
+ */
+var io = require('socket.io').listen(server);
+var players = [];
+var games = [];
+var connections = [];
+
+function findEmptyRow(board, column) {
+  let emptyRow = -1;
+  for (let row = 0; row < board.length; row++) {
+    if (board[row][column] == "empty") {
+      emptyRow = row;
+    }
+  }
+  return emptyRow;
+}
+
+function checkVictory(board, row, column, player) {
+  let horizontal = 1;
+  let upLeft = 1;
+  let vertical = 1;
+  let upRight = 1;
+
+  // horizontal check
+  try {
+    let colLeft = column - 1;
+    while (board[row][colLeft] == player){
+      horizontal++;
+      colLeft--;
+    }
+  } catch (err) {
+    // nothing
+  }
+  try {
+    let colRight = column + 1;
+    while (board[row][colRight] == player){
+      horizontal++;
+      colRight++;
+    }
+  } catch (err) {
+    // nothing
+  }
+  if (horizontal >= 4) {return true};
+
+  // left up diagonal check
+  try {
+    let colLeft = column - 1;
+    let rowUp = row - 1;
+    while (board[rowUp][colLeft] == player){
+      upLeft++;
+      colLeft--;
+      rowUp--;
+    }
+  } catch (err) {
+    // nothing
+  }
+  try {
+    let colRight = column + 1;
+    let rowDown = row + 1;
+    while (board[rowDown][colRight] == player){
+      upLeft++;
+      colRight++;
+      rowDown++;
+    }
+  } catch (err) {
+    // nothing
+  }
+  if (upLeft >= 4) {return true};
+
+  // vertical check
+  try {
+    let rowUp = row - 1;
+    while (board[rowUp][column] == player){
+      vertical++;
+      rowUp--;
+    }
+  } catch (err) {
+    // nothing
+  }
+  try {
+    let rowDown = row + 1;
+    while (board[rowDown][column] == player){
+      vertical++;
+      rowDown++;
+    }
+  } catch (err) {
+    // nothing
+  }
+  if (vertical >= 4) {return true};
+
+  // right up diagonal check
+  try {
+    let colLeft = column - 1;
+    let rowDown = row + 1;
+    while (board[rowDown][colLeft] == player){
+      upRight++;
+      colLeft--;
+      rowDown++;
+    }
+  } catch (err) {
+    // nothing
+  }
+  try {
+    let colRight = column + 1;
+    let rowUp = row - 1;
+    while (board[rowUp][colRight] == player){
+      upRight++;
+      colRight++;
+      rowUp--;
+    }
+  } catch (err) {
+    // nothing
+  }
+  if (upRight >= 4) {return true};
+
+  return false;
+}
+
+io.sockets.on('connection', function(socket) {
+
+  connections.push(socket);
+  console.log('New Connection: %s sockets connected', connections.length);
+
+  socket.on('disconnect', function(data) {
+    connections.splice(connections.indexOf(socket), 1);
+    console.log('Disconnected: %s sockets connected', connections.length);
+  });
+
+  socket.on('submit user', function(data){
+    console.log('New User: ' + data);
+    socket.username = data;
+    players.push({
+      username:   data,
+      id:         socket.id
+    });
+
+    if (players.length == 1) { io.to(socket.id).emit("route", "queuing") }
+
+    else {
+
+      // Game Creation & Initialization Code
+
+      let gameId = games.length + 1;
+      gameId = gameId.toString();
+
+      const board = [
+        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
+        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
+        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
+        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
+        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
+        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"]
+      ];
+
+      let gameData = {
+        gameId,
+        board
+      };
+
+      gameData["status"] = "player1";
+      gameData["opponent"] = players[1].username;
+
+      io.to(players[0].id).emit("route", "game");
+      io.to(players[0].id).emit("init game", gameData);
+      io.to(players[0].id).emit("init chat", {
+        user: players[0].username,
+        status: "player1",
+        gameId
+      });
+
+      gameData["status"] = "player2";
+      gameData["opponent"] = players[0].username;
+
+      io.to(players[1].id).emit("route", "game");
+      io.to(players[1].id).emit("init game", gameData);
+      io.to(players[1].id).emit("init chat", {
+        user: players[1].username,
+        status: "player2",
+        gameId
+      });
+
+      games.push({
+        id: gameId,
+        player1: players[0].id,
+        player2: players[1].id,
+        status: "player1",
+        board
+      });
+      players.length = 0;
+    }
+  });
+
+  socket.on("new message", function(data) {
+
+    for ( let i = 0; i < games.length; i++ ) {
+      if (games[i].id == data.gameId) {
+
+        io.to(games[i].player1).emit("update chat", {
+          user: data.user,
+          text: data.text,
+          status: data.status
+        });
+
+        io.to(games[i].player2).emit("update chat", {
+          user: data.user,
+          text: data.text,
+          status: data.status
+        });
+      }
+    }
+  });
+
+  socket.on("make move", function(data) {
+
+    for ( let i = 0; i < games.length; i++ ) {
+      if (games[i].id == data.gameId) {
+
+        const row = findEmptyRow(games[i].board, data.column);
+
+        if (row == -1) {
+          // nothing should happen here
+          return;
+        }
+
+        // change board to reflect move
+        games[i].board[row][data.column] = data.player;
+
+        // check for victory, if none then just update game
+        if (checkVictory(games[i].board, row, data.column, data.player)) {
+          io.to(games[i].player1).emit("victory", games[i].board);
+          io.to(games[i].player2).emit("victory", games[i].board);
+        } else {
+          io.to(games[i].player1).emit("update game", games[i].board);
+          io.to(games[i].player2).emit("update game", games[i].board);
+        }
+      }
+    }
+  })
+});
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
