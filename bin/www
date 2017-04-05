@@ -7,6 +7,7 @@
 var app = require('../app');
 var debug = require('debug')('connect4:server');
 var http = require('http');
+import axios from 'axios';
 
 /**
  * Get port from environment and store in Express.
@@ -37,115 +38,43 @@ var players = [];
 var games = [];
 var connections = [];
 
-function findEmptyRow(board, column) {
-  let emptyRow = -1;
-  for (let row = 0; row < board.length; row++) {
-    if (board[row][column] == "empty") {
-      emptyRow = row;
-    }
-  }
-  return emptyRow;
-}
+// Code to create and initialize a game
+function createGame() {
 
-function checkVictory(board, row, column, player) {
-  let horizontal = 1;
-  let upLeft = 1;
-  let vertical = 1;
-  let upRight = 1;
+  const gameUri = "http://192.168.1.244:3000/games/create/" + players[0]._id + "." + players[1]._id;
 
-  // horizontal check
-  try {
-    let colLeft = column - 1;
-    while (board[row][colLeft] == player){
-      horizontal++;
-      colLeft--;
-    }
-  } catch (err) {
-    // nothing
-  }
-  try {
-    let colRight = column + 1;
-    while (board[row][colRight] == player){
-      horizontal++;
-      colRight++;
-    }
-  } catch (err) {
-    // nothing
-  }
-  if (horizontal >= 4) {return true};
+  axios.get(gameUri)
+    .then(function (res) {
+      let gameData = res.data;
+      gameData["gameId"] = gameData._id;
 
-  // left up diagonal check
-  try {
-    let colLeft = column - 1;
-    let rowUp = row - 1;
-    while (board[rowUp][colLeft] == player){
-      upLeft++;
-      colLeft--;
-      rowUp--;
-    }
-  } catch (err) {
-    // nothing
-  }
-  try {
-    let colRight = column + 1;
-    let rowDown = row + 1;
-    while (board[rowDown][colRight] == player){
-      upLeft++;
-      colRight++;
-      rowDown++;
-    }
-  } catch (err) {
-    // nothing
-  }
-  if (upLeft >= 4) {return true};
+      gameData["status"] = "player1";
+      gameData["opponent"] = players[1].username;
 
-  // vertical check
-  try {
-    let rowUp = row - 1;
-    while (board[rowUp][column] == player){
-      vertical++;
-      rowUp--;
-    }
-  } catch (err) {
-    // nothing
-  }
-  try {
-    let rowDown = row + 1;
-    while (board[rowDown][column] == player){
-      vertical++;
-      rowDown++;
-    }
-  } catch (err) {
-    // nothing
-  }
-  if (vertical >= 4) {return true};
+      io.to(gameData.player1.socketId).emit("route", "game");
+      io.to(gameData.player1.socketId).emit("init game", gameData);
+      io.to(gameData.player1.socketId).emit("init chat", {
+        user: players[0].username,
+        status: "player1",
+        gameId: gameData.gameId
+      });
 
-  // right up diagonal check
-  try {
-    let colLeft = column - 1;
-    let rowDown = row + 1;
-    while (board[rowDown][colLeft] == player){
-      upRight++;
-      colLeft--;
-      rowDown++;
-    }
-  } catch (err) {
-    // nothing
-  }
-  try {
-    let colRight = column + 1;
-    let rowUp = row - 1;
-    while (board[rowUp][colRight] == player){
-      upRight++;
-      colRight++;
-      rowUp--;
-    }
-  } catch (err) {
-    // nothing
-  }
-  if (upRight >= 4) {return true};
+      gameData["status"] = "player2";
+      gameData["opponent"] = players[0].username;
 
-  return false;
+      io.to(gameData.player2.socketId).emit("route", "game");
+      io.to(gameData.player2.socketId).emit("init game", gameData);
+      io.to(gameData.player2.socketId).emit("init chat", {
+        user: players[1].username,
+        status: "player2",
+        gameId: gameData.gameId
+      });
+
+      players.length = 0;
+    })
+    .catch(function (err) {
+      console.log("didn't work brah\n\n" + err);
+    });
 }
 
 io.sockets.on('connection', function(socket) {
@@ -160,65 +89,27 @@ io.sockets.on('connection', function(socket) {
 
   socket.on('submit user', function(data){
     console.log('New User: ' + data);
-    socket.username = data;
-    players.push({
-      username:   data,
-      id:         socket.id
-    });
 
-    if (players.length == 1) { io.to(socket.id).emit("route", "queuing") }
+    const createPlayerUri = "http://192.168.1.244:3000/players/create/" + data + "." + socket.id;
+
+    axios.get(createPlayerUri)
+      .then(function (res) {
+        socket.username = data;
+        players.push(res.data);
+
+        if (players.length <= 1) { io.to(socket.id).emit("route", "queuing") }
+
+        else createGame();
+      })
+      .catch(function (err) {
+        console.log("Player Not Created");
+      });
+
+    if (players.length <= 1) { io.to(socket.id).emit("route", "queuing") }
 
     else {
 
-      // Game Creation & Initialization Code
 
-      let gameId = games.length + 1;
-      gameId = gameId.toString();
-
-      const board = [
-        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
-        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
-        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
-        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
-        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"],
-        [ "empty", "empty", "empty", "empty", "empty", "empty", "empty"]
-      ];
-
-      let gameData = {
-        gameId,
-        board
-      };
-
-      gameData["status"] = "player1";
-      gameData["opponent"] = players[1].username;
-
-      io.to(players[0].id).emit("route", "game");
-      io.to(players[0].id).emit("init game", gameData);
-      io.to(players[0].id).emit("init chat", {
-        user: players[0].username,
-        status: "player1",
-        gameId
-      });
-
-      gameData["status"] = "player2";
-      gameData["opponent"] = players[0].username;
-
-      io.to(players[1].id).emit("route", "game");
-      io.to(players[1].id).emit("init game", gameData);
-      io.to(players[1].id).emit("init chat", {
-        user: players[1].username,
-        status: "player2",
-        gameId
-      });
-
-      games.push({
-        id: gameId,
-        player1: players[0].id,
-        player2: players[1].id,
-        status: "player1",
-        board
-      });
-      players.length = 0;
     }
   });
 
@@ -244,30 +135,24 @@ io.sockets.on('connection', function(socket) {
 
   socket.on("make move", function(data) {
 
-    for ( let i = 0; i < games.length; i++ ) {
-      if (games[i].id == data.gameId) {
+    const gameUri = "http://192.168.1.244:3000/games/update/" + data.gameId + "." + data.column;
 
-        const row = findEmptyRow(games[i].board, data.column);
+    axios.get(gameUri)
+      .then(function (res) {
+        let gameData = res.data;
 
-        if (row == -1) {
-          // nothing should happen here
-          return;
-        }
-
-        // change board to reflect move
-        games[i].board[row][data.column] = data.player;
-
-        // check for victory, if none then just update game
-        if (checkVictory(games[i].board, row, data.column, data.player)) {
-          io.to(games[i].player1).emit("victory", games[i].board);
-          io.to(games[i].player2).emit("victory", games[i].board);
+        if (gameData.victory != "N/A") {
+          io.to(gameData.player1.socketId).emit("victory", gameData.board);
+          io.to(gameData.player2.socketId).emit("victory", gameData.board);
         } else {
-          io.to(games[i].player1).emit("update game", games[i].board);
-          io.to(games[i].player2).emit("update game", games[i].board);
+          io.to(gameData.player1.socketId).emit("update game", gameData.board);
+          io.to(gameData.player2.socketId).emit("update game", gameData.board);
         }
-      }
-    }
-  })
+      })
+      .catch(function (err) {
+        console.log("didn't work brah\n\n" + err);
+      });
+  });
 });
 
 /**
