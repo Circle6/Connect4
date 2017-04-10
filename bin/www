@@ -93,6 +93,38 @@ io.sockets.on('connection', function(socket) {
   socket.on('disconnect', function(data) {
     connections.splice(connections.indexOf(socket), 1);
     console.log('Disconnected: %s sockets connected', connections.length);
+    
+    let player = -1;
+
+    for (let i = 0; i < players.length; i++) {
+      if (socket.id == players[i].socketId) {
+        player = i;
+      }
+    }
+
+    if (player != -1) {
+      players.splice(players.indexOf(socket), 1);
+    } 
+
+    else {
+      const deleteGameUri = "http://192.168.1.244:3000/games/delete/" + socket.id
+
+      axios.get(deleteGameUri)
+        .then(function (res) {
+          console.log('Deleting Game');
+
+          if (res.data != "N/A") {
+
+            let game = res.data;
+
+            io.to(game.player1.socketId).emit("player disconnect", data);
+            io.to(game.player2.socketId).emit("player disconnect", data);
+          }
+        })
+        .catch(function (err) {
+          console.log("oops, didn't work");
+        });
+    }
   });
 
   socket.on('submit user', function(data){
@@ -148,14 +180,21 @@ io.sockets.on('connection', function(socket) {
     axios.get(gameUri)
       .then(function (res) {
         let gameData = res.data;
-        if (gameData != "null") {
-          if (gameData.victory != "N/A") {
-            io.to(gameData.player1.socketId).emit("victory", gameData.board);
-            io.to(gameData.player2.socketId).emit("victory", gameData.board);
-          } else {
-            io.to(gameData.player1.socketId).emit("update game", gameData.board);
-            io.to(gameData.player2.socketId).emit("update game", gameData.board);
-          }
+
+        if (gameData.victory != "N/A") {
+          io.to(gameData.player1.socketId).emit("victory", gameData.board);
+          io.to(gameData.player2.socketId).emit("victory", gameData.board);
+
+          const deleteGameUri = "http://192.168.1.244:3000/games/delete/" + gameData.player1.socketId;
+
+          axios.get(deleteGameUri)
+            .then( console.log("Game was Deleted") )
+            .catch( function (err) {
+              console.log("Game didn't delete\n\n" + err);
+            });
+        } else {
+          io.to(gameData.player1.socketId).emit("update game", gameData.board);
+          io.to(gameData.player2.socketId).emit("update game", gameData.board);
         }
       })
       .catch(function (err) {
