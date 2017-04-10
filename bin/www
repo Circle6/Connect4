@@ -43,6 +43,7 @@ function createGame() {
 
   console.log("running create game function");
 
+  // Creates a game on RESTful server. Requires post two player objects
   const gameUri = "http://192.168.1.244:3000/games/create/";
 
   axios.post(gameUri, {
@@ -50,9 +51,12 @@ function createGame() {
       player2: players[1]
     })
     .then(function (res) {
+
+      // gameData is the returned game object created by the RESTful server
       let gameData = res.data;
       gameData["gameId"] = gameData._id;
 
+      // Initializes and emits game and chat data to player1 client.
       gameData["status"] = "player1";
       gameData["opponent"] = players[1].username;
 
@@ -64,6 +68,7 @@ function createGame() {
         gameId: gameData.gameId
       });
 
+      // Initializes and emits game and chat data to player1 client.
       gameData["status"] = "player2";
       gameData["opponent"] = players[0].username;
 
@@ -75,6 +80,7 @@ function createGame() {
         gameId: gameData.gameId
       });
 
+      // Creates an associated chat object on the RESTful server.
       const chatUri = "http://192.168.1.244:3000/chats/create/" + gameData._id;
       axios.get(chatUri);
 
@@ -90,10 +96,13 @@ io.sockets.on('connection', function(socket) {
   connections.push(socket);
   console.log('New Connection: %s sockets connected', connections.length);
 
+  // Handles player disconnects from server
   socket.on('disconnect', function(data) {
     connections.splice(connections.indexOf(socket), 1);
     console.log('Disconnected: %s sockets connected', connections.length);
-    
+
+    // Checks to see if submitted player exists in players array
+    // (meaning the entered a username but haven't been queued yet).
     let player = -1;
 
     for (let i = 0; i < players.length; i++) {
@@ -102,17 +111,22 @@ io.sockets.on('connection', function(socket) {
       }
     }
 
+    // If disconnect player exists in player array, removes from array.
     if (player != -1) {
       players.splice(players.indexOf(socket), 1);
-    } 
+    }
 
     else {
+
+      // Attempts to delete game associated with disconnected user.
+      // If user was not playing a game, request is sent but returns "N/A"
       const deleteGameUri = "http://192.168.1.244:3000/games/delete/" + socket.id
 
       axios.get(deleteGameUri)
         .then(function (res) {
-          console.log('Deleting Game');
 
+          // If disconnected player was actually in the game, emits event
+          // to the player they were matched with. Otherwise does nothing.
           if (res.data != "N/A") {
 
             let game = res.data;
@@ -127,9 +141,11 @@ io.sockets.on('connection', function(socket) {
     }
   });
 
+  // Handles the creation of a new player.
   socket.on('submit user', function(data){
     console.log('New User: ' + data);
 
+    // creates player object and pushes to array
     let player = {
       socketId: socket.id,
       username: data
@@ -137,13 +153,18 @@ io.sockets.on('connection', function(socket) {
 
     players.push(player);
 
+    // if there is only 1 player waiting, routes to queuing. Else creates
+    // game.
     if (players.length <= 1) { io.to(socket.id).emit("route", "queuing") }
 
     else { createGame() }
   });
 
+  // Handles submitting of a new message to game chat.
   socket.on("new message", function(data) {
 
+    // Parses data sent into a message object and sends it to RESTful
+    // server
     const chatUri = "http://192.168.1.244:3000/chats/update/";
 
     axios.post(chatUri, {
@@ -159,6 +180,8 @@ io.sockets.on('connection', function(socket) {
         const chatData = res.data.chatData;
         const gameUri = "http://192.168.1.244:3000/games/find/" + data.gameId;
 
+        // Calls game to get player sockets so chat can be update.
+        // (Should fix api to reduce server calls).
         axios.get(gameUri)
           .then( function (res) {
             io.to(res.data.player1.socketId).emit("update chat", chatData);
@@ -173,32 +196,44 @@ io.sockets.on('connection', function(socket) {
       })
   });
 
+  // Handles moves made by players
   socket.on("make move", function(data) {
 
+    // Sends attempted move to RESTful server
     const gameUri = "http://192.168.1.244:3000/games/update/" + data.gameId + "." + data.column;
 
     axios.get(gameUri)
       .then(function (res) {
         let gameData = res.data;
 
-        if (gameData.victory != "N/A") {
-          io.to(gameData.player1.socketId).emit("victory", gameData.board);
-          io.to(gameData.player2.socketId).emit("victory", gameData.board);
+        // Runs if the move made was a valid move
+        if (gameData != "null") {
 
-          const deleteGameUri = "http://192.168.1.244:3000/games/delete/" + gameData.player1.socketId;
+          // Runs if the game was won
+          if (gameData.victory != "N/A") {
+            io.to(gameData.player1.socketId).emit("victory", gameData.board);
+            io.to(gameData.player2.socketId).emit("victory", gameData.board);
 
-          axios.get(deleteGameUri)
-            .then( console.log("Game was Deleted") )
-            .catch( function (err) {
-              console.log("Game didn't delete\n\n" + err);
-            });
-        } else {
-          io.to(gameData.player1.socketId).emit("update game", gameData.board);
-          io.to(gameData.player2.socketId).emit("update game", gameData.board);
+            // Deletes game and chat data associated with game.
+            // (Redundant, should fix api to reduce server calls).
+            const deleteGameUri = "http://192.168.1.244:3000/games/delete/" + gameData.player1.socketId;
+
+            axios.get(deleteGameUri)
+              .then( console.log("Game was Deleted") )
+              .catch( function (err) {
+                console.log("Game didn't delete\n\n" + err);
+              });
+          }
+
+          // Runs if game is still in play
+          else {
+            io.to(gameData.player1.socketId).emit("update game", gameData.board);
+            io.to(gameData.player2.socketId).emit("update game", gameData.board);
+          }
         }
       })
       .catch(function (err) {
-        console.log("didn't work brah\n\n" + err);
+        console.log("Game was not updated\n\n" + err);
       });
   });
 });
