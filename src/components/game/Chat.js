@@ -45,8 +45,8 @@ class Chat extends React.Component {
 
     render() {
 
-      const Chat = this.state.chatData.map((message) =>
-        <Message key={message.id} user={message.user} text={message.text} status={message.status}/>
+      const Chat = this.state.chatData.map((message, index) =>
+        <Message key={index} user={message.user} text={message.text} status={message.status}/>
       );
 
       const chatBoxStyle = {

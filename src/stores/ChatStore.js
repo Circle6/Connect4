@@ -7,13 +7,9 @@ class ChatStore extends EventEmitter {
     this.chatData = [];
   };
 
-  updateChat = (message) => {
-    let id = this.chatData.length + 1;
-    message["id"] = id.toString();
-    this.chatData.push( Object.assign({}, message) );
+  updateChat = (chat) => {
+    this.chatData = chat;
     this.emit("chatUpdated");
-    this.chatData.forEach(function(obj) {
-    })
   };
 
   getChat = () => { return this.chatData};
@@ -21,7 +17,7 @@ class ChatStore extends EventEmitter {
   chatStoreHandler = (action) => {
     switch (action.type) {
       case "UPDATE_CHAT": {
-        this.updateChat(action.message);
+        this.updateChat(action.chat);
       }
     }
   };

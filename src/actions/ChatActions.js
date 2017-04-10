@@ -1,10 +1,10 @@
 import dispatcher from "../dispatcher";
 
-export function updateChat(message) {
+export function updateChat(chat) {
 
   dispatcher.dispatch({
     type: "UPDATE_CHAT",
-    message: message
+    chat: chat
   });
 
   console.log("A chat action was fired");

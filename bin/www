@@ -41,9 +41,14 @@ var connections = [];
 // Code to create and initialize a game
 function createGame() {
 
-  const gameUri = "http://192.168.1.244:3000/games/create/" + players[0]._id + "." + players[1]._id;
+  console.log("running create game function");
 
-  axios.get(gameUri)
+  const gameUri = "http://192.168.1.244:3000/games/create/";
+
+  axios.post(gameUri, {
+      player1: players[0],
+      player2: players[1]
+    })
     .then(function (res) {
       let gameData = res.data;
       gameData["gameId"] = gameData._id;
@@ -70,6 +75,9 @@ function createGame() {
         gameId: gameData.gameId
       });
 
+      const chatUri = "http://192.168.1.244:3000/chats/create/" + gameData._id;
+      axios.get(chatUri);
+
       players.length = 0;
     })
     .catch(function (err) {
@@ -90,47 +98,47 @@ io.sockets.on('connection', function(socket) {
   socket.on('submit user', function(data){
     console.log('New User: ' + data);
 
-    const createPlayerUri = "http://192.168.1.244:3000/players/create/" + data + "." + socket.id;
+    let player = {
+      socketId: socket.id,
+      username: data
+    }
 
-    axios.get(createPlayerUri)
-      .then(function (res) {
-        socket.username = data;
-        players.push(res.data);
-
-        if (players.length <= 1) { io.to(socket.id).emit("route", "queuing") }
-
-        else createGame();
-      })
-      .catch(function (err) {
-        console.log("Player Not Created");
-      });
+    players.push(player);
 
     if (players.length <= 1) { io.to(socket.id).emit("route", "queuing") }
 
-    else {
-
-
-    }
+    else { createGame() }
   });
 
   socket.on("new message", function(data) {
 
-    for ( let i = 0; i < games.length; i++ ) {
-      if (games[i].id == data.gameId) {
+    const chatUri = "http://192.168.1.244:3000/chats/update/";
 
-        io.to(games[i].player1).emit("update chat", {
+    axios.post(chatUri, {
+      chatId: data.gameId,
+      message: {
           user: data.user,
           text: data.text,
           status: data.status
-        });
+        }
+      })
+      .then( function (res) {
 
-        io.to(games[i].player2).emit("update chat", {
-          user: data.user,
-          text: data.text,
-          status: data.status
-        });
-      }
-    }
+        const chatData = res.data.chatData;
+        const gameUri = "http://192.168.1.244:3000/games/find/" + data.gameId;
+
+        axios.get(gameUri)
+          .then( function (res) {
+            io.to(res.data.player1.socketId).emit("update chat", chatData);
+            io.to(res.data.player2.socketId).emit("update chat", chatData);
+          })
+          .catch( function (err) {
+
+          })
+      })
+      .catch( function (err) {
+        console.log("Chat Not Updated\n\n" + err);
+      })
   });
 
   socket.on("make move", function(data) {
@@ -140,13 +148,14 @@ io.sockets.on('connection', function(socket) {
     axios.get(gameUri)
       .then(function (res) {
         let gameData = res.data;
-
-        if (gameData.victory != "N/A") {
-          io.to(gameData.player1.socketId).emit("victory", gameData.board);
-          io.to(gameData.player2.socketId).emit("victory", gameData.board);
-        } else {
-          io.to(gameData.player1.socketId).emit("update game", gameData.board);
-          io.to(gameData.player2.socketId).emit("update game", gameData.board);
+        if (gameData != "null") {
+          if (gameData.victory != "N/A") {
+            io.to(gameData.player1.socketId).emit("victory", gameData.board);
+            io.to(gameData.player2.socketId).emit("victory", gameData.board);
+          } else {
+            io.to(gameData.player1.socketId).emit("update game", gameData.board);
+            io.to(gameData.player2.socketId).emit("update game", gameData.board);
+          }
         }
       })
       .catch(function (err) {
