@@ -207,7 +207,7 @@ io.sockets.on('connection', function(socket) {
         let gameData = res.data;
 
         // Runs if the move made was a valid move
-        if (gameData != "null") {
+        if (gameData != "N/A") {
 
           // Runs if the game was won
           if (gameData.victory != "N/A") {
