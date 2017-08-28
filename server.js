@@ -7,6 +7,7 @@ const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
 import config from './server.config.js';
 import hbs from 'hbs';
+var http = require('http');
 
 const index = require('./routes/index');
 const users = require('./routes/users');
@@ -53,6 +54,7 @@ app.use(function(err, req, res, next) {
   res.render('error');
 });
 
-app.listen(config.port, config.host, () => {
-  console.info('Express listening on port', config.port);
-});
+var server = http.createServer(app);
+server.listen(config.port);
+var io = require('socket.io').listen(server);
+
